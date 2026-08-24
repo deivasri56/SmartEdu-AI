@@ -1,0 +1,146 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  studentProfile StudentProfile?
+  teacherProfile TeacherProfile?
+}
+
+model Class {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  
+  students  StudentProfile[]
+  assignments TeacherSubjectClass[]
+  subjects  Subject[]
+
+  classInchargeId String?         @unique
+  classIncharge   TeacherProfile? @relation("ClassIncharge", fields: [classInchargeId], references: [id], onDelete: SetNull)
+}
+
+model Subject {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+  
+  assignments TeacherSubjectClass[]
+  grades      Grade[]
+
+  classId           String?
+  class             Class?           @relation(fields: [classId], references: [id], onDelete: Cascade)
+  credits           Int              @default(3)
+  subjectInchargeId String?
+  subjectIncharge   TeacherProfile?  @relation("SubjectIncharge", fields: [subjectInchargeId], references: [id])
+  activities        SubjectActivity[]
+}
+
+model StudentProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  
+  rollNumber String?
+  grades    Grade[]
+  insights  AIRecommendation[]
+  activityMarks ActivityMark[]
+}
+
+model TeacherProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  
+  assignments TeacherSubjectClass[]
+  inchargeClass Class?              @relation("ClassIncharge")
+  inchargeSubjects Subject[]        @relation("SubjectIncharge")
+}
+
+model TeacherSubjectClass {
+  id               String         @id @default(uuid())
+  teacherProfileId String
+  teacher          TeacherProfile @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  subjectId        String
+  subject          Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classId          String
+  class            Class          @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now())
+
+  @@unique([teacherProfileId, subjectId, classId])
+}
+
+model Grade {
+  id               String         @id @default(uuid())
+  studentProfileId String
+  student          StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+  subjectId        String
+  subject          Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  type             String         // Exam, Quiz, Assignment
+  score            Float
+  maxScore         Float          @default(100.0)
+  date             DateTime       @default(now())
+  comments         String?
+  createdAt        DateTime       @default(now())
+}
+
+model AIRecommendation {
+  id               String         @id @default(uuid())
+  studentProfileId String
+  student          StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+  type             String         // academic_insight, prediction, general
+  title            String
+  content          String         // Recommendations / Analysis markdown/text
+  createdAt        DateTime       @default(now())
+}
+
+model SubjectActivity {
+  id        String   @id @default(uuid())
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  name      String
+  date      DateTime
+  totalMarks Float
+  createdAt DateTime @default(now())
+
+  marks     ActivityMark[]
+}
+
+model ActivityMark {
+  id               String          @id @default(uuid())
+  activityId       String
+  activity         SubjectActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  studentProfileId String
+  student          StudentProfile  @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+  score            Float
+  createdAt        DateTime        @default(now())
+
+  @@unique([activityId, studentProfileId])
+}
