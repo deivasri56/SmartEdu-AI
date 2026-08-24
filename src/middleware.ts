@@ -53,6 +53,12 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Protect API routes and role-specific pages. Public pages (login, register) are excluded.
-  matcher: ['/api/:path*', '/student/:path*', '/teacher/:path*', '/admin/:path*'],
+  // Protect API routes and role-specific pages.
+  // Public routes (/login, /api/auth/*) are excluded so unauthenticated users can log in.
+  matcher: [
+    '/api/((?!auth/).*)',
+    '/student/:path*',
+    '/teacher/:path*',
+    '/admin/:path*',
+  ],
 };
