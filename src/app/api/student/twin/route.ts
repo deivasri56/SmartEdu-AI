@@ -170,12 +170,49 @@ export async function GET(req: NextRequest) {
       assessments: allAssessments,
     };
 
-    const twin = await generateStructuredAIResponse<any>(
-      TWIN_SYSTEM_PROMPT,
-      JSON.stringify(dataPayload)
-    );
+    // Try AI generation, fall back to data-driven twin on quota errors
+    try {
+      const twin = await generateStructuredAIResponse<any>(
+        TWIN_SYSTEM_PROMPT,
+        JSON.stringify(dataPayload)
+      );
+      return NextResponse.json({ twin });
+    } catch (aiErr: any) {
+      console.warn("Twin AI generation failed, using data-driven fallback:", aiErr.message);
 
-    return NextResponse.json({ twin });
+      // Build a data-driven fallback twin from actual grades
+      const subjectMap: Record<string, { total: number; count: number }> = {};
+      allAssessments.forEach((a) => {
+        if (!subjectMap[a.subject]) subjectMap[a.subject] = { total: 0, count: 0 };
+        subjectMap[a.subject].total += (a.score / a.maxScore) * 100;
+        subjectMap[a.subject].count += 1;
+      });
+
+      const subjectMastery = Object.entries(subjectMap).map(([subject, data]) => ({
+        subject,
+        score: Math.round(data.total / data.count),
+      }));
+
+      const overallAvg = subjectMastery.length > 0
+        ? Math.round(subjectMastery.reduce((sum, s) => sum + s.score, 0) / subjectMastery.length)
+        : 0;
+
+      const fallbackTwin = {
+        academicPersona: overallAvg >= 80 ? "High Achiever" : overallAvg >= 60 ? "Steady Learner" : "Rising Potential",
+        biography: `${student.user.name} is a student in ${student.class.name} with an overall average of ${overallAvg}% across ${subjectMastery.length} subject(s). This profile is generated from real grade data.`,
+        subjectMastery,
+        learningPatterns: [
+          { pattern: "Assessment Performance", details: `Based on ${allAssessments.length} recorded assessments across ${subjectMastery.length} subject(s).` },
+          { pattern: "Data-Driven Profile", details: "AI analysis is temporarily unavailable due to high demand. This profile uses your actual grade data." }
+        ],
+        personalizedInsights: [
+          `Your strongest subject is ${subjectMastery.sort((a, b) => b.score - a.score)[0]?.subject || "N/A"} with ${subjectMastery[0]?.score || 0}% average.`,
+          `Focus on improving ${subjectMastery.sort((a, b) => a.score - b.score)[0]?.subject || "N/A"} which has the lowest average of ${subjectMastery.sort((a, b) => a.score - b.score)[0]?.score || 0}%.`,
+          "AI-powered deep insights will be available once the service quota resets. Please try refreshing later."
+        ]
+      };
+      return NextResponse.json({ twin: fallbackTwin });
+    }
   } catch (err: any) {
     console.error("Twin API error:", err);
     return NextResponse.json({ error: "Failed to generate digital twin" }, { status: 500 });

@@ -175,7 +175,68 @@ export async function* runStudentAgenticWorkflow(data: any) {
 
     yield { step: "done", data: recommendations };
   } catch (err: any) {
-    throw new Error(`Workflow failed: ${err.message}`);
+    console.warn("AI workflow failed, building data-driven fallback:", err.message);
+
+    // Build fallback from real data
+    const grades = data.grades || [];
+    const subjectAverages = data.subjectAverages || [];
+
+    // Identify weak topics from real averages
+    const weakTopics = subjectAverages
+      .filter((s: any) => s.average < 70)
+      .map((s: any) => ({
+        subject: s.name,
+        topic: `${s.name} Overall`,
+        reason: `Average score is ${s.average}%, below the 70% threshold`,
+        score: s.average,
+        severity: s.average < 50 ? "high" : s.average < 60 ? "medium" : "low"
+      }));
+
+    // Priority topics — lowest scoring subjects
+    const priorityTopics = [...subjectAverages]
+      .sort((a: any, b: any) => a.average - b.average)
+      .slice(0, 3)
+      .map((s: any) => ({
+        subject: s.name,
+        topic: `${s.name} Fundamentals`,
+        evidence: `Current average: ${s.average}%`,
+        score: s.average
+      }));
+
+    const personalizedNextSteps = [
+      { action: "Review your lowest-scoring subjects", reason: "Focus on areas with the most room for improvement", timeframe: "This week" },
+      { action: "Practice recent exam topics", reason: "Reinforce concepts from recent assessments", timeframe: "Next 2 weeks" },
+      { action: "Set daily study goals", reason: "Consistent practice improves retention", timeframe: "Ongoing" }
+    ];
+
+    const studyRecommendation = subjectAverages
+      .filter((s: any) => s.average < 75)
+      .slice(0, 3)
+      .map((s: any) => ({
+        title: `Improve ${s.name}`,
+        description: `Your current average in ${s.name} is ${s.average}%. Focus on fundamentals and practice problems.`,
+        priority: s.average < 50 ? "high" : s.average < 65 ? "medium" : "low",
+        subject: s.name
+      }));
+
+    // If no weak areas found, add a generic positive recommendation
+    if (studyRecommendation.length === 0) {
+      studyRecommendation.push({
+        title: "Maintain Your Performance",
+        description: "You're performing well across subjects. Keep up the consistent effort!",
+        priority: "low",
+        subject: "All Subjects"
+      });
+    }
+
+    const fallbackResult = {
+      weakTopics: weakTopics.length > 0 ? weakTopics : [{ subject: "None detected", topic: "Keep it up!", reason: "All subjects are above average", score: 0, severity: "low" }],
+      priorityTopics,
+      personalizedNextSteps,
+      studyRecommendation
+    };
+
+    yield { step: "done", data: fallbackResult };
   }
 }
 
@@ -227,6 +288,22 @@ export async function* runTeacherAgenticWorkflow(data: any) {
 
     yield { step: "done", data: recommendations };
   } catch (err: any) {
-    throw new Error(`Workflow failed: ${err.message}`);
+    console.warn("Teacher AI workflow failed, using fallback:", err.message);
+
+    const fallbackResult = {
+      classWeakTopics: [
+        { subject: "General", topic: "Overall Performance", classAverage: 65, affectedStudents: ["Multiple students"], recommendation: "AI analysis is temporarily unavailable. Review recent grades manually." }
+      ],
+      studentsNeedingAttention: [
+        { name: "Check manually", className: data.className || "N/A", averageScore: 0, weakSubjects: ["Review needed"], specificGaps: "AI quota temporarily exhausted", suggestedIntervention: "Please try again later or review gradebook directly." }
+      ],
+      suggestedTeachingActions: [
+        { title: "Manual Review Recommended", description: "AI service quota has been temporarily exhausted. Review the gradebook for insights.", priority: "medium", targetGroup: "All classes" }
+      ],
+      recommendedNextAssessment: [
+        { subject: "General", topic: "Review", suggestedType: "Quick Quiz", timeframe: "This week" }
+      ]
+    };
+    yield { step: "done", data: fallbackResult };
   }
 }
