@@ -45,7 +45,18 @@ export async function GET(req: NextRequest) {
     orderBy: { date: "desc" },
   });
 
-  if (grades.length === 0) {
+  // Fetch all activity marks for this student
+  const activityMarks = await prisma.activityMark.findMany({
+    where: { studentProfileId: student.id },
+    include: {
+      activity: {
+        include: { subject: true },
+      },
+    },
+  });
+
+  // If neither grades nor activity marks exist, return early
+  if (grades.length === 0 && activityMarks.length === 0) {
     return new Response(
       JSON.stringify({
         insights: null,
@@ -55,8 +66,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Calculate subject averages
+  // Calculate subject averages from BOTH grades and activity marks
   const subjectMap: Record<string, { total: number; count: number; name: string }> = {};
+
   grades.forEach((g: any) => {
     if (!subjectMap[g.subject.code]) {
       subjectMap[g.subject.code] = { total: 0, count: 0, name: g.subject.name };
@@ -65,16 +77,24 @@ export async function GET(req: NextRequest) {
     subjectMap[g.subject.code].count += 1;
   });
 
+  activityMarks.forEach((am: any) => {
+    const subj = am.activity.subject;
+    if (!subjectMap[subj.code]) {
+      subjectMap[subj.code] = { total: 0, count: 0, name: subj.name };
+    }
+    subjectMap[subj.code].total += (am.score / am.activity.totalMarks) * 100;
+    subjectMap[subj.code].count += 1;
+  });
+
   const subjectAverages = Object.keys(subjectMap).map((code) => ({
     code,
     name: subjectMap[code].name,
     average: Math.round(subjectMap[code].total / subjectMap[code].count),
   }));
 
-  const inputData = {
-    studentName: student.user.name,
-    className: student.class.name,
-    grades: grades.map((g: any) => ({
+  // Combine grades and activity marks into a unified assessment list
+  const allAssessments = [
+    ...grades.map((g: any) => ({
       subject: g.subject.name,
       code: g.subject.code,
       type: g.type,
@@ -84,6 +104,25 @@ export async function GET(req: NextRequest) {
       date: g.date.toISOString().split("T")[0],
       comments: g.comments,
     })),
+    ...activityMarks.map((am: any) => ({
+      subject: am.activity.subject.name,
+      code: am.activity.subject.code,
+      type: `Activity: ${am.activity.name}`,
+      score: am.score,
+      maxScore: am.activity.totalMarks,
+      percentage: Math.round((am.score / am.activity.totalMarks) * 100),
+      date: am.activity.date.toISOString().split("T")[0],
+      comments: "Class Activity Grade",
+    })),
+  ];
+
+  // Sort by date descending
+  allAssessments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const inputData = {
+    studentName: student.user.name,
+    className: student.class.name,
+    grades: allAssessments,
     subjectAverages,
   };
 

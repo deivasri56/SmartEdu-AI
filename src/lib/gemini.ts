@@ -26,11 +26,12 @@ export async function generateAIResponse(
   }
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
+    model: "gemini-3.5-flash",
     generationConfig: {
       temperature: 0.7,
       topP: 0.9,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
+      responseMimeType: "application/json",
     },
   });
 
@@ -61,22 +62,18 @@ export async function generateStructuredAIResponse<T>(
 ): Promise<T> {
   const text = await generateAIResponse(systemPrompt, userPrompt);
 
-  // Strip markdown code fences if present
+  // Strip markdown code fences if present using a robust regex
   let cleaned = text.trim();
-  if (cleaned.startsWith("```json")) {
-    cleaned = cleaned.slice(7);
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.slice(3);
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    cleaned = jsonMatch[0];
   }
-  if (cleaned.endsWith("```")) {
-    cleaned = cleaned.slice(0, -3);
-  }
-  cleaned = cleaned.trim();
 
   try {
     return JSON.parse(cleaned) as T;
-  } catch {
-    console.error("Failed to parse AI JSON response:", cleaned.substring(0, 200));
+  } catch (e: any) {
+    console.error("Failed to parse AI JSON response. Length:", cleaned.length, "Error:", e.message);
+    console.error("Raw cleaned content:", cleaned);
     throw new Error("AI returned an invalid response format. Please try again.");
   }
 }

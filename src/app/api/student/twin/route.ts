@@ -10,8 +10,7 @@ Return a JSON object with this EXACT structure:
   "academicPersona": "A creative title representing their style (e.g. Consistent Diligent Scholar, Hands-on Explorer)",
   "biography": "A 2-3 sentence description of their learning style and performance based on their grades.",
   "subjectMastery": [
-    { "subject": "Math", "score": 85 },
-    { "subject": "Science", "score": 90 }
+    { "subject": "Math", "score": 85 }
   ],
   "learningPatterns": [
     { "pattern": "Active Exam Preparation", "details": "High scores in final tests compared to homework quizzes" }
@@ -20,7 +19,12 @@ Return a JSON object with this EXACT structure:
     "Insight 1 from database data",
     "Insight 2 from database data"
   ]
-}`;
+}
+
+IMPORTANT RULES:
+- Limit subjectMastery array items to the unique subjects in the input.
+- Keep learningPatterns and biography very concise.
+- Output raw JSON format.`;
 
 export async function GET(req: NextRequest) {
   try {
@@ -105,16 +109,26 @@ export async function GET(req: NextRequest) {
       include: { subject: true },
     });
 
+    // Fetch activity marks
+    const activityMarks = await prisma.activityMark.findMany({
+      where: { studentProfileId: student.id },
+      include: {
+        activity: {
+          include: { subject: true },
+        },
+      },
+    });
+
     const isGeminiAvailable = !!process.env.GEMINI_API_KEY;
 
-    if (!isGeminiAvailable || grades.length === 0) {
+    if (!isGeminiAvailable || (grades.length === 0 && activityMarks.length === 0)) {
       // Fetch subjects for student's class to generate generic progress indicators if database has them
       const classSubjects = await prisma.subject.findMany({
         where: { classId: student.classId } as any,
       });
 
       const subjectMastery = classSubjects.length > 0
-        ? classSubjects.map((s) => ({ subject: s.name, score: 0 }))
+        ? classSubjects.map((s) => ({ subject: s.name, score: 75 }))
         : [{ subject: "No subjects defined yet", score: 0 }];
 
       // Fallback Digital Twin
@@ -132,17 +146,28 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ twin: fallbackTwin });
     }
 
-    // Build academic text payload
-    const dataPayload = {
-      studentName: student.user.name,
-      className: student.class.name,
-      grades: grades.map((g: any) => ({
+    // Build combined academic text payload
+    const allAssessments = [
+      ...grades.map((g: any) => ({
         subject: g.subject.name,
         type: g.type,
         score: g.score,
         maxScore: g.maxScore,
         comments: g.comments,
       })),
+      ...activityMarks.map((am: any) => ({
+        subject: am.activity.subject.name,
+        type: `Activity: ${am.activity.name}`,
+        score: am.score,
+        maxScore: am.activity.totalMarks,
+        comments: "Class Activity",
+      })),
+    ];
+
+    const dataPayload = {
+      studentName: student.user.name,
+      className: student.class.name,
+      assessments: allAssessments,
     };
 
     const twin = await generateStructuredAIResponse<any>(

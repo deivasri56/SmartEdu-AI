@@ -45,7 +45,18 @@ export async function POST(req: NextRequest) {
       take: 20, // Limit to recent grades for context window
     });
 
-    // Build subject averages
+    // Also fetch activity marks
+    const activityMarks = await prisma.activityMark.findMany({
+      where: { studentProfileId: student.id },
+      include: {
+        activity: {
+          include: { subject: true },
+        },
+      },
+      take: 20,
+    });
+
+    // Build subject averages from BOTH grades and activity marks
     const subjectMap: Record<string, { total: number; count: number; name: string }> = {};
     grades.forEach((g: any) => {
       if (!subjectMap[g.subject.code]) {
@@ -55,17 +66,30 @@ export async function POST(req: NextRequest) {
       subjectMap[g.subject.code].count += 1;
     });
 
+    activityMarks.forEach((am: any) => {
+      const subj = am.activity.subject;
+      if (!subjectMap[subj.code]) {
+        subjectMap[subj.code] = { total: 0, count: 0, name: subj.name };
+      }
+      subjectMap[subj.code].total += (am.score / am.activity.totalMarks) * 100;
+      subjectMap[subj.code].count += 1;
+    });
+
     const subjectAverages = Object.keys(subjectMap).map((code) => ({
       name: subjectMap[code].name,
       average: Math.round(subjectMap[code].total / subjectMap[code].count),
     }));
 
-    const gradesSummary = grades
-      .map(
+    const gradesSummary = [
+      ...grades.map(
         (g: any) =>
           `- ${g.subject.name} ${g.type}: ${g.score}/${g.maxScore} (${Math.round((g.score / g.maxScore) * 100)}%) — ${g.comments || "No comment"}`
-      )
-      .join("\n");
+      ),
+      ...activityMarks.map(
+        (am: any) =>
+          `- ${am.activity.subject.name} Activity "${am.activity.name}": ${am.score}/${am.activity.totalMarks} (${Math.round((am.score / am.activity.totalMarks) * 100)}%) — Class Activity`
+      ),
+    ].join("\n");
 
     const systemPrompt = buildStudentChatSystemPrompt({
       studentName: student.user.name,
