@@ -10,11 +10,17 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# Cache bust to ensure fresh dev.db
+ARG CACHEBUST=1
+
 # Copy the rest of the application files
 COPY . .
 
 # Generate Prisma Client
 RUN npx prisma generate
+
+# Run seed scripts to populate the database
+RUN node prisma/seed-it-classes.js || true
 
 # Build Next.js
 ENV NEXT_TELEMETRY_DISABLED=1
